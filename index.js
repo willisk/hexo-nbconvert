@@ -7,7 +7,7 @@ const { execSync } = require("child_process");
 const root = "/Users/k/Google Drive/Colab Notebooks/blog/";
 const postDir = path.join(root, "_posts");
 const nbDir = path.join(root, "ipynb");
-const postDirHexo = "/Users/k/git/TEMP/source/_posts";
+const postDirHexo = "/Users/k/git/willisk.github.io/source/_posts";
 
 const CUTCODE_START = '```python\n### cutCode ###';
 const CUTCODE_END = '### cutCode ###\n```';
