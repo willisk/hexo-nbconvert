@@ -26,7 +26,7 @@ for(var i = 0;i < files.length; i++){
     var execCmd = convertCmd + " '" + fileName + "' " +  convertCfg;
 
     //convert
-    //execSync(execCmd);
+    execSync(execCmd);
 
     //cut lines
     var modified = false;
