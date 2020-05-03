@@ -3,69 +3,95 @@
 const path = require('path');
 const fs = require('fs-extra');
 const { execSync } = require("child_process");
+const del = require('del');
 
-const root = "/Users/k/Google Drive/Colab Notebooks/blog/";
-const postDir = path.join(root, "_posts");
-const nbDir = path.join(root, "ipynb");
-const postDirHexo = "/Users/k/git/willisk.github.io/source/_posts";
+const nbDir = "/Users/k/Google Drive/Blog/";
+const mdDir = "/Users/k/git/srcPages/source/";
 
-const CUTCODE_START = '```python\n### cutCode ###';
-const CUTCODE_END = '### cutCode ###\n```';
+var nbconvertCmd = "jupyter nbconvert --to markdown"
+var nbconvertOpts = "--NbConvertApp.output_files_dir={notebook_name}"
 
-var convertCmd = "jupyter nbconvert --to markdown "
-var convertCfg = " --output-dir='" + postDir + "' --NbConvertApp.output_files_dir={notebook_name}"
+var args = process.argv[2] || '';
+const rCut = /(\`{3}[^\n]*)\n[^\n]*\+{3}CUT\+{3}([\s\S]*?\`{3})/g;
+const rFront = /[\s\S]*?(\-{3}[\s\S]+?\-{3})/;
+const rEOF = /#EOF[\s\S]*/;
 
-var files = fs.readdirSync(nbDir);
+processDir(nbDir, mdDir + "_posts")
+processDir(nbDir + "drafts", mdDir + "_drafts")
 
 
-for(var i = 0;i < files.length; i++){
-  var fileName = path.join(nbDir, files[i]);
-  var fileNameOut = path.join(postDir, files[i]).split('.ipynb')[0] + ".md";
-  var stat = fs.lstatSync(fileName);
-  if (!stat.isDirectory() && fileName.indexOf('.ipynb')>=0){
-    var execCmd = convertCmd + " '" + fileName + "' " +  convertCfg;
-
-    //convert
-    execSync(execCmd);
-
-    //cut lines
-    var modified = false;
-    var data = fs.readFileSync(fileNameOut, 'utf8');
-
-    var cut = data;
-    var spl = data.split('---');
-    if (spl.length < 3){
-      console.log('--- WARNING: No Frontmatter set for ' + fileNameOut);
-    }
-    else {
-      var date = spl[1].split('date: ')[1].split(' ')[0].split('-');
-      var assetDir = date.slice(0,2).join('/') + '/';
-
-      if( spl[0] != "" ){
-        cut = '---' + spl.slice(1).join('---');
-        modified = true;
-      }
-
-      spl = cut.split('![png](');
-      if (spl.length != 1 && !spl[1].includes(assetDir)){
-        cut = spl.join('![png](' + assetDir);
-        modified = true;
-      }
-    }
-
-    spl = cut.split(CUTCODE_START);
-    if (spl.length != 1){
-      cut = spl.map( (x) => {a = x.split(CUTCODE_END); return a[a.length-1];}).join('');
-      modified = true;
-    }
-
-    if (modified){
-      console.log('MODIFYING ' + fileNameOut);
-      fs.writeFileSync(fileNameOut, cut, 'utf8');
-    }
-  }
+function file_up_to_date(fileName, date) {
+  if (fs.existsSync(fileName))
+    return (fs.lstatSync(fileName).mtime < date) ? false : true;
+  return false;
 }
 
-console.log('COPYING to ' + postDirHexo);
-fs.copySync(postDir, postDirHexo);
+function nb_sync(source, target, mtime, syncNotebook = false) {
 
+  if (file_up_to_date(target + '.md', mtime))
+    return false;   // already up to date
+
+  // sync
+  del.sync(target, { force: true });
+
+  console.log('SYNCING ' + source + ' --> ' + target);
+  if (fs.existsSync(source))
+    fs.copySync(source, target);
+  if (syncNotebook)
+    fs.copySync(source + '.md', target + '.md');
+  return true;
+}
+
+function processDir(dir, dirOut) {
+
+  var files = fs.readdirSync(dir);
+
+  for (var i = 0; i < files.length; i++) {
+    var fileName = path.join(dir, files[i]);
+    var stat = fs.lstatSync(fileName);
+
+    if (!stat.isDirectory() && fileName.indexOf('.ipynb') >= 0) {
+      const nbName = files[i].split('.ipynb')[0];
+      const nbIn = path.join(dir, nbName);
+      const nbOut = path.join(dirOut, nbName);
+      const fileNameOut = nbOut + ".md";
+      // const nbHexoSync = path.join(postDirHexo, nbName);
+
+      if (args == '-f' || nb_sync(nbIn, nbOut, stat.mtime))  // file modified
+      {
+        // convert .ipynb to .md
+        let execCmd = `${nbconvertCmd} '${fileName}' --output-dir='${dirOut}' ${nbconvertOpts}`;
+        execSync(execCmd);
+
+        var content = fs.readFileSync(fileNameOut, 'utf8');
+
+        // cut out everything before front-matter and parse date
+        let rDate = /date:\s*(\d\d\d\d)/;
+        let date;
+        content = content.replace(rFront, (match, fmatter) => {
+          let lineDate = rDate.exec(fmatter);
+          date = lineDate ? parseInt(lineDate[1]) : 2020;   // you have a year to make this more robust
+          return fmatter;
+        });
+
+        // change png path to /2020/path
+        let rPng = /(\!\[png\]\()/g;
+        content = content.replace(rPng, `$1/${date}/`);
+
+        // cut out all code starting with +++CUT+++
+        content = content.replace(rCut, '');
+
+        // cut out everything at #EOF
+        content = content.replace(rEOF, '');
+
+        // write content to file
+        fs.writeFileSync(fileNameOut, content, 'utf8');
+      }
+
+      // sync .md and folder to Hexo dir // changed to symlink
+      //nb_sync(nbOut, nbHexoSync, stat.mtime, syncNotebook = true);
+    }
+  }
+
+
+}
